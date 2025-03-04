@@ -1,1 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>食品熱量分析</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; }
+        table { margin: auto; border-collapse: collapse; width: 60%; }
+        th, td { border: 1px solid black; padding: 10px; text-align: center; }
+        th { background-color: #f2f2f2; }
+        .dropdown-container { margin-bottom: 20px; }
 
+        /* Responsive Chart Layout */
+        .chart-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            max-width: 100%;
+            margin: auto;
+        }
+
+        canvas {
+            width: 400px !important;
+            height: 400px !important;
+            max-width: 100%;
+        }
+    </style>
+</head>
+<body>
+
+    <h1 style="font-size: 24px;">食品熱量分析</h1>
+
+    <table>
+        
+        <!-- Food Selection -->
+        <tr>
+            <td>
+                <select id="categorySelect"></select>
+            </td>
+            <td>
+                <select id="foodSelect"></select>
+            </td>
+        </tr>
+
+        <!-- Total Mass and Calorie Row -->
+        <tr>
+            <th>總熱量 (kcal)</th>
+            <th>總重量 (g)</th>
+        </tr>
+        <tr>
+            <td id="totalCalories"></td>
+            <td>100</td>
+        </tr>
+    </table>
+
+    <!-- Charts Row -->
+    <div class="chart-container">
+        <canvas id="calorieChart"></canvas>
+        <canvas id="massChart"></canvas>
+    </div>
+    
+    <!-- Nutrient Breakdown Table -->
+    <table style="width:100%">
+        <tr>
+            <th style="width:25%">主要成分</th>
+            <th>重量 (g)</th>
+            <th>熱量佔比 (%)</th>
+        </tr>
+        <tr><td>醣類</td><td id="carbs"></td><td id="carbCal"></td></tr>
+        <tr><td>蛋白質</td><td id="protein"></td><td id="proteinCal"></td></tr>
+        <tr><td>脂肪</td><td id="fat"></td><td id="fatCal"></td></tr>
+        <tr><td>水</td><td id="water"></td><td>-</td></tr>
+        <tr><td>灰分</td><td id="ash"></td><td>-</td></tr>
+    </table>
+
+    <script>
+        let foodData = [];
+        let categorySelect = document.getElementById('categorySelect');
+        let foodSelect = document.getElementById('foodSelect');
+
+        // Load CSV file
+        fetch('food_data.csv')
+            .then(response => response.text())
+            .then(csvText => {
+                Papa.parse(csvText, {
+                    header: true,
+                    skipEmptyLines: true,
+                    dynamicTyping: true,
+                    complete: function (results) {
+                        foodData = results.data;
+                        populateCategories();
+                    }
+                });
+            });
+
+        // Populate category dropdown
+        function populateCategories() {
+            let categories = [...new Set(foodData.map(food => food.Category))]; // Unique categories
+            categories.forEach(category => {
+                let option = document.createElement('option');
+                option.value = category;
+                option.textContent = category;
+                categorySelect.appendChild(option);
+            });
+
+            // Load the first category's food items
+            populateFoods(categories[0]);
+        }
+
+        // Populate food dropdown based on selected category
+        function populateFoods(selectedCategory) {
+            foodSelect.innerHTML = ""; // Clear previous options
+            let filteredFoods = foodData.filter(food => food.Category === selectedCategory);
+
+            filteredFoods.forEach(food => {
+                let option = document.createElement('option');
+                option.value = food["Food Name"];
+                option.textContent = food["Food Name"];
+                foodSelect.appendChild(option);
+            });
+
+            // Automatically load the first food item
+            if (filteredFoods.length > 0) {
+                displayFoodData(filteredFoods[0]);
+            }
+        }
+
+        // Update food list when category changes
+        categorySelect.addEventListener('change', function () {
+            populateFoods(this.value);
+        });
+
+        // Update food data when a new food is selected
+        foodSelect.addEventListener('change', function () {
+            let selectedFood = foodData.find(food => food["Food Name"] === this.value);
+            if (selectedFood) displayFoodData(selectedFood);
+        });
+
+        // Display food data
+        function displayFoodData(food) {
+            document.getElementById('carbs').textContent = food["Carbs (g)"].toFixed(2);
+            document.getElementById('protein').textContent = food["Protein (g)"].toFixed(2);
+            document.getElementById('fat').textContent = food["Fat (g)"].toFixed(2);
+            document.getElementById('water').textContent = food["Water (g)"].toFixed(2);
+            document.getElementById('ash').textContent = food["Ash (g)"].toFixed(2);
+            document.getElementById('totalCalories').textContent = food["Calorie (kcal)"].toFixed(1);
+
+            let totalCalories = food["Calorie (kcal)"];
+            let Hc = food["Carbs (g)"] * 4;
+            let Hp = food["Protein (g)"] * 3.9;
+            let Hf = food["Fat (g)"] * 8.9;
+            let CalculatedCalories = Hc + Hp + Hf;
+
+            document.getElementById('carbCal').textContent = ((Hc / CalculatedCalories) * 100).toFixed(1) + '%';
+            document.getElementById('proteinCal').textContent = ((Hp / CalculatedCalories) * 100).toFixed(1) + '%';
+            document.getElementById('fatCal').textContent = ((Hf / CalculatedCalories) * 100).toFixed(1) + '%';
+
+            updateCharts(food["Carbs (g)"], food["Protein (g)"], food["Fat (g)"], food["Water (g)"], food["Ash (g)"], Hc, Hp, Hf, CalculatedCalories);
+        }
+
+
+        // Update Charts
+        function updateCharts(mc, mp, mf, mw, ma, Hc, Hp, Hf, CalculatedCalories) {
+
+            // Calculate Calorie Percentages
+            let carbPercent = ((Hc / CalculatedCalories) * 100).toFixed(1);
+            let proteinPercent = ((Hp / CalculatedCalories) * 100).toFixed(1);
+            let fatPercent = ((Hf / CalculatedCalories) * 100).toFixed(1);
+
+            // Update Calorie Distribution Chart
+            calorieChart.data.datasets[0].data = [carbPercent, proteinPercent, fatPercent];
+            calorieChart.update();
+
+            // Fixed-point Mass data 
+            let totalMass = (mc + mp + mf + mw + ma).toFixed(2);
+            let mcF = (mc * 1.0).toFixed(2);
+            let mpF = (mp * 1.0).toFixed(2);
+            let mfF = (mf * 1.0).toFixed(2);
+            let mwF = (mw * 1.0).toFixed(2);
+            let maF = (ma * 1.0).toFixed(2);
+            // Update Mass Distribution Chart
+            massChart.data.datasets[0].data = [mcF, mpF, mfF, mwF, maF];
+            massChart.update();
+        }
+        
+        // Calorie Distribution Chart
+        let calorieChart = new Chart(document.getElementById('calorieChart'), {
+            type: 'pie',
+            data: {
+                labels: ['醣類', '蛋白質', '脂肪'],
+                datasets: [{
+                    data: [0, 0, 0], // Start with empty values
+                    //backgroundColor: ['#ffcc00', '#ff6666', '#66ccff']
+                    backgroundColor: ['#99ff99', '#ff6666', '#ffcc00']
+                }]
+            },
+            options: {
+                plugins: {
+                    title: {
+                        display: true,
+                        text: '熱量佔比 (%)',  // Chart Title
+                        font: { size: 16 }
+                    },
+                    legend: {
+                        labels: {
+                            font: { size: 14 }  // Adjust legend font size
+                        }
+                    },
+                    tooltip: {
+                        bodyFont: { size: 14 },  // Adjust floating label (tooltip) font size
+                        callbacks: {
+                            label: (tooltipItem) => tooltipItem.raw + '%'
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Mass Distribution Chart
+        let massChart = new Chart(document.getElementById('massChart'), {
+            type: 'pie',
+            data: {
+                labels: ['醣類', '蛋白質', '脂肪', '水', '灰分'],
+                datasets: [{
+                    data: [0, 0, 0, 0, 0], // Start with empty values
+                    //backgroundColor: ['#ffcc00', '#ff6666', '#66ccff', '#99ff99', '#cccccc']
+                    backgroundColor: ['#99ff99', '#ff6666', '#ffcc00', '#66ccff', '#cccccc']
+                }]
+            },
+            options: {
+                plugins: {
+                    title: {
+                        display: true,
+                        text: '重量 (g)',  // Chart Title
+                        font: { size: 16 }
+                    },
+                    legend: {
+                        labels: {
+                        font: { size: 14 }  // Adjust legend font size
+                        }
+                    },
+                    tooltip: {
+                        bodyFont: { size: 14 }  // Adjust floating label (tooltip) font size
+                    }
+                }
+            }
+        });
+
+    </script>
+
+</body>
+</html>
